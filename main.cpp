@@ -21,115 +21,98 @@ std::pair<size_t,int> process_args(int argc, char* argv[]) {
 
     if (offset_options.empty() || size_options.empty()) {
         zen::print("Error: --size/--offset arguments are absent, using default", 1000000, " and ", 3, '\n');
-        return {10000000, 3};  // Default size of 1 million elements
+        return {1000000, 3};  // Default size of 1 million elements
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0])};
 }
-
-// Aligned allocator
+// Aligned allocator (32-byte for AVX2)
 template<typename T>
 struct AlignedAllocator {
     using value_type = T;
-
-    AlignedAllocator() = default;
-
-    template <typename U>
-    AlignedAllocator(const AlignedAllocator<U>&) {}
-
     T* allocate(std::size_t n) {
-        void* ptr = _mm_malloc(n * sizeof(T), 8); // 8-byte aligned malloc
+        void* ptr = _mm_malloc(n * sizeof(T), 32); // 32-byte aligned for AVX2
         if (!ptr) throw std::bad_alloc();
         return static_cast<T*>(ptr);
     }
-
-    void deallocate(T* ptr, std::size_t) {
-        _mm_free(ptr);
-    }
-
-    template <typename U>
-    struct rebind {
-        using other = AlignedAllocator<U>;
-    };
+    void deallocate(T* ptr, std::size_t) { _mm_free(ptr); }
 };
 
+// Misaligned allocator
 template<typename T>
-struct MissAlignedAllocator {
+struct MisalignedAllocator {
     using value_type = T;
-
-    MissAlignedAllocator() = default;
-
-    template <typename U>
-    MissAlignedAllocator(const MissAlignedAllocator<U>&) {}
-
+    int offset;
+    MisalignedAllocator(int off = 3) : offset(off) {}
     T* allocate(std::size_t n) {
-        void* raw = _mm_malloc(n * sizeof(T) + 8, 8); // Overallocate
+        void* raw = _mm_malloc(n * sizeof(T) + 32, 32); // Overallocate
         if (!raw) throw std::bad_alloc();
-
-        // Offset by 3 bytes to force misalignment
-        void* misaligned_ptr = reinterpret_cast<void*>(reinterpret_cast<char*>(raw) + 3);
-        return reinterpret_cast<T*>(misaligned_ptr);
+        return reinterpret_cast<T*>(static_cast<char*>(raw) + offset); // Misalign by offset
     }
-
     void deallocate(T* ptr, std::size_t) {
-        // Recover the actual pointer before free
-        void* raw_ptr = reinterpret_cast<void*>(reinterpret_cast<char*>(ptr) - 3);
-        _mm_free(raw_ptr);
+        void* raw = static_cast<char*>(ptr) - offset;
+        _mm_free(raw);
     }
-
-    template <typename U>
-    struct rebind {
-        using other = MissAlignedAllocator<U>;
-    };
 };
 
+// Sum function with AVX2
+template<typename Allocator>
+double sum(size_t size, std::vector<double, Allocator>& container) {
+    __m256d sum_vec = _mm256_setzero_pd(); // 4 doubles
 
-template <typename Allocator>
-double sum(int size, std::vector<double, Allocator>& container) {
-    __m256d sum_vec = _mm256_setzero_pd();  // Initialize sum to 0
-
-    // SIMD (AVX256) for 8 doubles at a time
-    for (int i = 0; i + 7 < size / 8; i += 8) {
-        __m256d vec = _mm256_load_pd(container.data() + i);  // Load 8 doubles
-        sum_vec = _mm256_add_pd(sum_vec, vec);  // SIMD addition
+    // Process 4 doubles at a time with AVX2
+    size_t i = 0;
+    for (; i + 3 < size; i += 4) {
+        __m256d vec = _mm256_loadu_pd(container.data() + i); // Unaligned load
+        sum_vec = _mm256_add_pd(sum_vec, vec);
     }
 
-    // Handle any remaining elements that couldn't be processed in the loop
+    // Handle remainder
     double sum = 0;
-    for (int i = size - size % 8; i < size; ++i) {
-        sum += container[i];  // Process the remaining elements one by one
+    for (; i < size; ++i) {
+        sum += container[i];
     }
 
-    // Reduce the SIMD result to a scalar sum
-    double result[8];
-    _mm256_storeu_pd(result, sum_vec);  // Store the result in an array
-
-    // Sum the elements in the result array
-    for (int i = 0; i < 8; ++i) {
-        sum += result[i];
+    // Reduce SIMD vector to scalar
+    double result[4];
+    _mm256_storeu_pd(result, sum_vec);
+    for (int j = 0; j < 4; ++j) {
+        sum += result[j];
     }
-
     return sum;
 }
 
+// Warm-up function
+template <typename Allocator>
+void warmUp(std::vector<double, Allocator>& container){
+    double sum = 0;
+    for(int i = 0; i < container.size();++i){
+        sum += container[i];
+    }
 
+}
 int main(int argc, char* argv[]) {
     auto [size, offset] = process_args(argc, argv);  // Get user-specified size and offset
     
     zen::timer timer;
 
     // Aligned Data
-    timer.start();
     std::vector<double, AlignedAllocator<double>> alignedData(size, 0);  // size is in terms of elements
+
     std::fill(alignedData.begin(), alignedData.end(), zen::random_int(0, 10000));
+    warmUp(alignedData);
+
+    timer.start();
     sum(size, alignedData);
     timer.stop();
     double alignedDataTime = timer.duration<zen::timer::nsec>().count();  // Fix variable name conflict
     zen::print(zen::color::green(std::format("| {:<36} | {:>12.6f} | {:<9} |\n", "Aligned data SIMD", alignedDataTime, "ns")));
 
-    // Misaligned Data (using MissAlignedAllocator)
-    timer.start();
     std::vector<double, MissAlignedAllocator<double>> misalignedData(size, 0);  // Ensure correct allocator
     std::fill(misalignedData.begin(), misalignedData.end(), zen::random_int(0, 10000));
+    warmUp(misalignedData);
+
+    // Misaligned Data (using MissAlignedAllocator)
+    timer.start();
     sum(size, misalignedData);
     timer.stop();
     double misalignedDataTime = timer.duration<zen::timer::nsec>().count();  // Fix variable name conflict
