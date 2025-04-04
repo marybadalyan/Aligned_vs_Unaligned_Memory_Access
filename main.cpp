@@ -9,6 +9,7 @@
 #include "kaizen.h" // Assuming this provides zen::timer, zen::print, zen::color, zen::cmd_args
 #include <string>
 #pragma pack(1)
+
 double random_double(double min, double max) {
     static std::mt19937 gen{std::random_device{}()};
     std::uniform_real_distribution<> dis(min, max);
@@ -24,7 +25,7 @@ std::tuple<size_t, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, or --iterations arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
-        return {1000000, 5, 100}; // Increased defaults
+        return {100000, 5, 100}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]),std::stoi(iter_options[0])};
 }
