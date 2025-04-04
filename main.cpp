@@ -25,6 +25,7 @@ std::tuple<size_t, int, int> process_args(int argc, char* argv[]) {
         zen::print("Error: --size, --offset, or --iterations arguments are absent, using defaults: size=1000000, offset=1, iterations=100\n");
         return {1000000, 3, 1000}; // Increased defaults
     }
+    return {std::stoi(size_options[0]), std::stoi(offset_options[0]),std::stoi(iter_options[0])};
 }
 
 // Aligned allocator (8-byte alignment)
@@ -54,7 +55,7 @@ double sum_aligned(size_t size, std::vector<double, AlignedAllocator<double>>& c
     for (int r = 0; r < repeats; ++r) { // Repeat to amplify workload
         __m256d sum_vec = _mm256_setzero_pd();
         size_t i = 0;
-        for (; i + 7 < size; i += 8) {
+        for (; i + 3 < size; i += 4) {
             __m256d vec = _mm256_load_pd(container.data() + i); // Aligned load
             sum_vec = _mm256_add_pd(sum_vec, vec);
         }
@@ -62,9 +63,9 @@ double sum_aligned(size_t size, std::vector<double, AlignedAllocator<double>>& c
         for (; i < size; ++i) {
             sum += container[i];
         }
-        double result[8];
+        double result[4];
         _mm256_store_pd(result, sum_vec);
-        for (int j = 0; j < 8; ++j) {
+        for (int j = 0; j < 4; ++j) {
             sum += result[j];
         }
         total_sum += sum;
@@ -72,28 +73,28 @@ double sum_aligned(size_t size, std::vector<double, AlignedAllocator<double>>& c
     return total_sum / repeats; // Average to avoid overflow
 }
 
-// Misaligned sum with AVX2
-double sum_misaligned(size_t size, std::vector<double, AlignedAllocator<double>>& container, int offset, int repeats = 10) {
+// Misaligned sum with AVX2 with byte-level offset
+double sum_misaligned(size_t size, std::vector<double, AlignedAllocator<double>>& container, int byte_offset, int repeats = 10) {
     double total_sum = 0;
+    double* base = container.data();
+    double* misaligned_ptr = reinterpret_cast<double*>(
+        reinterpret_cast<char*>(base) + byte_offset); // Byte-level offset, e.g., 4
+    size_t adjusted_size = size - (byte_offset / sizeof(double)); // Adjust for offset
     for (int r = 0; r < repeats; ++r) {
         __m256d sum_vec = _mm256_setzero_pd();
         size_t i = 0;
-        for (; i + 7 < size - offset; i += 8) { // Ensure no out-of-bounds access
-            __m256d vec = _mm256_loadu_pd(container.data() + i + offset); // Forced misalignment
+        for (; i + 3 < adjusted_size; i += 4) {
+            __m256d vec = _mm256_loadu_pd(misaligned_ptr + i); // Misaligned
             sum_vec = _mm256_add_pd(sum_vec, vec);
         }
         double sum = 0;
-        for (; i < size - offset; ++i) {
-            sum += container[i + offset];
-        }
-        double result[8];
+        for (; i < adjusted_size; ++i) sum += misaligned_ptr[i];
+        double result[4];
         _mm256_storeu_pd(result, sum_vec);
-        for (int j = 0; j < 8; ++j) {
-            sum += result[j];
-        }
+        for (int j = 0; j < 4; ++j) sum += result[j];
         total_sum += sum;
     }
-    return total_sum / repeats; // Average to avoid overflow
+    return total_sum / repeats;
 }
 
 // Warm-up function
@@ -109,7 +110,7 @@ int main(int argc, char* argv[]) {
     auto [size, offset, iter] = process_args(argc, argv);
     if (offset >= size) {
         std::cerr << "Offset (" << offset << ") must be less than size (" << size << "), adjusting to 1\n";
-        offset = 1;
+        offset = 3;
     }
     zen::timer timer;
 
