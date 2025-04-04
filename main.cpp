@@ -7,7 +7,7 @@
 #include <iomanip>
 #include <tuple>
 #include "kaizen.h" // Assuming this provides zen::timer, zen::print, zen::color, zen::cmd_args
-
+#include <string>
 double random_double(double min, double max) {
     static std::mt19937 gen{std::random_device{}()};
     std::uniform_real_distribution<> dis(min, max);
@@ -36,7 +36,7 @@ struct AlignedAllocator {
     template<typename U> AlignedAllocator(const AlignedAllocator<U>&) noexcept {}
 
     T* allocate(std::size_t n) {
-        void* ptr = _mm_malloc(n * sizeof(T), 32); // 8-byte aligned
+        void* ptr = _mm_malloc(n * sizeof(T), 8); // 8-byte aligned
         if (!ptr) throw std::bad_alloc();
         return static_cast<T*>(ptr);
     }
@@ -54,7 +54,7 @@ double sum_aligned(size_t size, std::vector<double, AlignedAllocator<double>>& c
     for (int r = 0; r < repeats; ++r) { // Repeat to amplify workload
         __m256d sum_vec = _mm256_setzero_pd();
         size_t i = 0;
-        for (; i + 3 < size; i += 4) {
+        for (; i + 7 < size; i += 8) {
             __m256d vec = _mm256_load_pd(container.data() + i); // Aligned load
             sum_vec = _mm256_add_pd(sum_vec, vec);
         }
@@ -78,7 +78,7 @@ double sum_misaligned(size_t size, std::vector<double, AlignedAllocator<double>>
     for (int r = 0; r < repeats; ++r) {
         __m256d sum_vec = _mm256_setzero_pd();
         size_t i = 0;
-        for (; i + 3 < size - offset; i += 4) { // Ensure no out-of-bounds access
+        for (; i + 7 < size - offset; i += 8) { // Ensure no out-of-bounds access
             __m256d vec = _mm256_loadu_pd(container.data() + i + offset); // Forced misalignment
             sum_vec = _mm256_add_pd(sum_vec, vec);
         }
@@ -147,13 +147,20 @@ int main(int argc, char* argv[]) {
                "Misaligned access SIMD", misaligned_time_avg, "ns")));
 
     // Verify results
-    std::cout << "Aligned sum: " << aligned_sum_result << ", Misaligned sum: " << misaligned_sum_result << "\n";
+    zen::print("Aligned sum: " , aligned_sum_result , ", Misaligned sum: " , misaligned_sum_result , "\n");
     uintptr_t base_addr = reinterpret_cast<uintptr_t>(data.data());
     uintptr_t misaligned_addr = reinterpret_cast<uintptr_t>(data.data() + offset);
-    std::cout << "Addresses - Base: 0x" << std::hex << base_addr 
-              << ", Misaligned access: 0x" << misaligned_addr << std::dec << "\n";
-    std::cout << "Alignment check - Base mod 8: " << (base_addr % 8) 
-              << ", Misaligned access mod 8: " << (misaligned_addr % 8) << "\n";
+    zen::print("Addresses - Base: 0x" , std::hex , base_addr 
+              , ", Misaligned access: 0x" , misaligned_addr , std::dec , "\n");
+    double speedup = aligned_time_avg/misaligned_time_avg;
+    std::string speedupFactor = std::to_string(speedup);
+
+    zen::print(zen::color::yellow("Aligned vs Misaligned speedup factor: "));
+    zen::print(zen::color::yellow(speedupFactor));
+    zen::print(zen::color::yellow("\n"));
+
+
+   
 
     return 0;
 }
