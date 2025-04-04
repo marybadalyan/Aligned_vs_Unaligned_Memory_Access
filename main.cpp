@@ -23,7 +23,7 @@ std::tuple<size_t, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, or --iterations arguments are absent, using defaults: size=1000000, offset=1, iterations=100\n");
-        return {1000000, 3, 1000}; // Increased defaults
+        return {1000000, 4, 1000}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]),std::stoi(iter_options[0])};
 }
