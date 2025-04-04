@@ -8,6 +8,7 @@
 #include <tuple>
 #include "kaizen.h" // Assuming this provides zen::timer, zen::print, zen::color, zen::cmd_args
 #include <string>
+#pragma pack(1)
 double random_double(double min, double max) {
     static std::mt19937 gen{std::random_device{}()};
     std::uniform_real_distribution<> dis(min, max);
