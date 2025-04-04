@@ -93,7 +93,7 @@ jobs:
         if [ -f "$executable_path" ]; then
           echo "Executable found, running it"
           # Run executable based on the platform
-          "$executable_path" --size 100000 --offset 30 --iterations 100
+          "$executable_path" --size 1000000 --offset 30 --iterations 100
         else
           echo "Executable not found: $executable_path"
           exit 1  # Fail if the executable isn't found
