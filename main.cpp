@@ -23,7 +23,7 @@ std::tuple<size_t, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, or --iterations arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
-        return {10000000, 4, 1000}; // Increased defaults
+        return {100000, 5, 100}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]),std::stoi(iter_options[0])};
 }
@@ -71,13 +71,14 @@ struct MisalignedAllocator {
 };
 
 // Aligned sum with AVX2
-double sum_aligned(size_t size, std::vector<double, AlignedAllocator<double>>& container, int repeats = 10) {
+template<typename Allocator>
+double sum_aligned(size_t size, std::vector<double, Allocator>& container, int repeats = 10) {
     double total_sum = 0;
     for (int r = 0; r < repeats; ++r) {
         __m256d sum_vec = _mm256_setzero_pd();
         size_t i = 0;
         for (; i + 3 < size; i += 4) {
-            __m256d vec = _mm256_loadu_pd(container.data() + i); // 8-byte aligned
+            __m256d vec = _mm256_load_pd(container.data() + i); // 8-byte aligned
             sum_vec = _mm256_add_pd(sum_vec, vec);
         }
         double sum = 0;
@@ -91,7 +92,8 @@ double sum_aligned(size_t size, std::vector<double, AlignedAllocator<double>>& c
 }
 
 // Misaligned sum with AVX2 with byte-level offset
-double sum_misaligned(size_t size, std::vector<double, MisalignedAllocator<double>>& container, int byte_offset, int repeats = 10) {
+template<typename Allocator>
+double sum_misaligned(size_t size, std::vector<double, Allocator>& container, int byte_offset, int repeats = 10) {
     double total_sum = 0;
     double* base = container.data();
     double* misaligned_ptr = reinterpret_cast<double*>(
@@ -118,9 +120,12 @@ double sum_misaligned(size_t size, std::vector<double, MisalignedAllocator<doubl
 template<typename Allocator>
 void warm_up(std::vector<double, Allocator>& container) {
     volatile double sum = 0; // Prevent optimization
-    for (size_t i = 0; i < container.size(); ++i) {
-        sum += container[i];
+    for(int j = 0; j < 10000; ++j){
+        for (size_t i = 0; i < container.size(); ++i) {
+            sum += container[i];
+        }
     }
+    
 }
 
 int main(int argc, char* argv[]) {
@@ -130,44 +135,48 @@ int main(int argc, char* argv[]) {
         offset = 4;
     }
     zen::timer timer;
-
-    // Aligned data
-    std::vector<double, AlignedAllocator<double>> alligned_data(size);
-    for (auto& val : alligned_data) {
-        val = random_double(0.0, 10000.0);
-    }
-    warm_up(alligned_data);
-
-    // Aligned access
-    double aligned_time_total = 0;
-    for (int r = 0; r < iter; ++r) {
-        timer.start();
-        sum_aligned(size, alligned_data);
-        timer.stop();
-        aligned_time_total += timer.duration<zen::timer::nsec>().count();
-    }
-    double aligned_time_avg = aligned_time_total / iter;
-    zen::print(zen::color::green(std::format("| {:<36} | {:>12.2f} | {:<9} |\n", 
-               "Aligned data SIMD", aligned_time_avg, "ns")));
-
+    
     // Misaligned data
     std::vector<double, MisalignedAllocator<double>> missaliged_data(size);
     for (auto& val : missaliged_data) { // Fixed initialization
         val = random_double(0.0, 10000.0);
     }
     warm_up(missaliged_data);
+    warm_up(missaliged_data);
 
     // Misaligned access
     double misaligned_time_total = 0;
     for (int r = 0; r < iter; ++r) {
         timer.start();
-        sum_misaligned(size, missaliged_data, offset);
+        volatile double sum = sum_misaligned(size, missaliged_data, offset);
         timer.stop();
-        misaligned_time_total += timer.duration<zen::timer::nsec>().count();
+        misaligned_time_total += timer.elapsed<zen::timer::nsec>().count();
     }
     double misaligned_time_avg = misaligned_time_total / iter;
     zen::print(zen::color::red(std::format("| {:<36} | {:>12.2f} | {:<9} |\n", 
                "Misaligned access SIMD", misaligned_time_avg, "ns")));
+    
+                // Aligned data
+    std::vector<double, AlignedAllocator<double>> alligned_data(size);
+    for (auto& val : alligned_data) {
+        val = random_double(0.0, 10000.0);
+    }
+    warm_up(alligned_data);
+    warm_up(alligned_data);
+
+    // Aligned access
+    double aligned_time_total = 0;
+    for (int r = 0; r < iter; ++r) {
+        timer.start();
+        volatile double sum = sum_aligned(size, alligned_data);
+        timer.stop();
+        aligned_time_total += timer.elapsed<zen::timer::nsec>().count();
+    }
+    double aligned_time_avg = aligned_time_total / iter;
+    zen::print(zen::color::green(std::format("| {:<36} | {:>12.2f} | {:<9} |\n", 
+               "Aligned data SIMD", aligned_time_avg, "ns")));
+
+    
 
     // Verification
     uintptr_t base_addr = reinterpret_cast<uintptr_t>(missaliged_data.data());
