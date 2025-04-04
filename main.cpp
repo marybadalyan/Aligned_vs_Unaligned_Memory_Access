@@ -82,3 +82,32 @@ struct MissAlignedAllocator {
     };
 };
 
+
+template <typename Allocator>
+double sum(int size, std::vector<double, Allocator>& container) {
+    __m256d sum_vec = _mm256_setzero_pd();  // Initialize sum to 0
+
+    // SIMD (AVX256) for 8 doubles at a time
+    for (int i = 0; i + 7 < size / 8; i += 8) {
+        __m256d vec = _mm256_load_pd(container.data() + i);  // Load 8 doubles
+        sum_vec = _mm256_add_pd(sum_vec, vec);  // SIMD addition
+    }
+
+    // Handle any remaining elements that couldn't be processed in the loop
+    double sum = 0;
+    for (int i = size - size % 8; i < size; ++i) {
+        sum += container[i];  // Process the remaining elements one by one
+    }
+
+    // Reduce the SIMD result to a scalar sum
+    double result[8];
+    _mm256_storeu_pd(result, sum_vec);  // Store the result in an array
+
+    // Sum the elements in the result array
+    for (int i = 0; i < 8; ++i) {
+        sum += result[i];
+    }
+
+    return sum;
+}
+
