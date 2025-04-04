@@ -111,3 +111,27 @@ double sum(int size, std::vector<double, Allocator>& container) {
     return sum;
 }
 
+
+int main(int argc, char* argv[]) {
+    auto [size, offset] = process_args(argc, argv);  // Get user-specified size and offset
+    
+    zen::timer timer;
+
+    // Aligned Data
+    timer.start();
+    std::vector<double, AlignedAllocator<double>> alignedData(size, 0);  // size is in terms of elements
+    std::fill(alignedData.begin(), alignedData.end(), zen::random_int(0, 10000));
+    sum(size, alignedData);
+    timer.stop();
+    double alignedDataTime = timer.duration<zen::timer::nsec>().count();  // Fix variable name conflict
+    zen::print(zen::color::green(std::format("| {:<36} | {:>12.6f} | {:<9} |\n", "Aligned data SIMD", alignedDataTime, "ns")));
+
+    // Misaligned Data (using MissAlignedAllocator)
+    timer.start();
+    std::vector<double, MissAlignedAllocator<double>> misalignedData(size, 0);  // Ensure correct allocator
+    std::fill(misalignedData.begin(), misalignedData.end(), zen::random_int(0, 10000));
+    sum(size, misalignedData);
+    timer.stop();
+    double misalignedDataTime = timer.duration<zen::timer::nsec>().count();  // Fix variable name conflict
+    zen::print(zen::color::red(std::format("| {:<36} | {:>12.6f} | {:<9} |\n", "Misaligned data SIMD", misalignedDataTime, "ns")));
+}
