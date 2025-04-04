@@ -25,7 +25,7 @@ std::tuple<size_t, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, or --iterations arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
-        return {100000, 5, 100}; // Increased defaults
+        return {1000000, 25, 100}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]),std::stoi(iter_options[0])};
 }
@@ -48,27 +48,6 @@ struct AlignedAllocator {
     template<typename U>
     struct rebind {
         using other = AlignedAllocator<U>;
-    };
-};
-
-// Aligned allocator (8-byte alignment)
-template<typename T>
-struct MisalignedAllocator {
-    using value_type = T;
-
-    MisalignedAllocator() = default;
-    template<typename U> MisalignedAllocator(const MisalignedAllocator<U>&) noexcept {}
-
-    T* allocate(std::size_t n) {
-        void* ptr = _mm_malloc(n * sizeof(T) + 8 , 8); // 8-byte aligned
-        if (!ptr) throw std::bad_alloc();
-        return static_cast<T*>(ptr);
-    }
-    void deallocate(T* ptr, std::size_t) noexcept { _mm_free(ptr); }
-
-    template<typename U>
-    struct rebind {
-        using other = MisalignedAllocator<U>;
     };
 };
 
@@ -139,7 +118,7 @@ int main(int argc, char* argv[]) {
     zen::timer timer;
     
     // Misaligned data
-    std::vector<double, MisalignedAllocator<double>> missaliged_data(size);
+    std::vector<double, AlignedAllocator<double>> missaliged_data(size);
     for (auto& val : missaliged_data) { // Fixed initialization
         val = random_double(0.0, 10000.0);
     }
