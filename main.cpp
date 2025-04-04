@@ -23,7 +23,7 @@ std::tuple<size_t, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, or --iterations arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
-        return {1000000, 4, 1000}; // Increased defaults
+        return {10000000, 4, 1000}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]),std::stoi(iter_options[0])};
 }
@@ -140,10 +140,9 @@ int main(int argc, char* argv[]) {
 
     // Aligned access
     double aligned_time_total = 0;
-    double aligned_sum_result = 0;
     for (int r = 0; r < iter; ++r) {
         timer.start();
-        aligned_sum_result = sum_aligned(size, alligned_data);
+        sum_aligned(size, alligned_data);
         timer.stop();
         aligned_time_total += timer.duration<zen::timer::nsec>().count();
     }
@@ -160,10 +159,9 @@ int main(int argc, char* argv[]) {
 
     // Misaligned access
     double misaligned_time_total = 0;
-    double misaligned_sum_result = 0;
     for (int r = 0; r < iter; ++r) {
         timer.start();
-        misaligned_sum_result = sum_misaligned(size, missaliged_data, offset);
+        sum_misaligned(size, missaliged_data, offset);
         timer.stop();
         misaligned_time_total += timer.duration<zen::timer::nsec>().count();
     }
@@ -172,7 +170,6 @@ int main(int argc, char* argv[]) {
                "Misaligned access SIMD", misaligned_time_avg, "ns")));
 
     // Verification
-    zen::print("Aligned sum: ", aligned_sum_result, ", Misaligned sum: ", misaligned_sum_result, "\n");
     uintptr_t base_addr = reinterpret_cast<uintptr_t>(missaliged_data.data());
     uintptr_t misaligned_addr = reinterpret_cast<uintptr_t>(
         reinterpret_cast<char*>(missaliged_data.data()) + offset); // Byte offset
