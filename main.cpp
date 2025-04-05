@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
         }
         auto end = std::chrono::high_resolution_clock::now();
         aligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
-        std::cout << "  Aligned sum = " << aligned_sum << "\n";
+        zen::print("  Aligned sum = " , aligned_sum , "\n");
 
         // Evict cache before misaligned
         flush_data(unaligned_ptr,total_size); // Ensure cache is cold
@@ -132,17 +132,16 @@ int main(int argc, char* argv[]) {
         }
         end = std::chrono::high_resolution_clock::now();
         unaligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
-        std::cout << "  Unaligned sum = " << unaligned_sum << "\n";
+        zen::print("  Unaligned sum = " , unaligned_sum , "\n");
     }
 
     // Compute averages
     double avg_aligned = std::accumulate(aligned_times.begin(), aligned_times.end(), 0.0) / trials;
     double avg_unaligned = std::accumulate(unaligned_times.begin(), unaligned_times.end(), 0.0) / trials;
 
-    std::cout << std::fixed << std::setprecision(3);
-    std::cout << "Average Aligned time: " << avg_aligned << " ms\n";
-    std::cout << "Average Unaligned time: " << avg_unaligned << " ms\n";
-    std::cout << "Performance ratio (unaligned/aligned): " << avg_unaligned / avg_aligned << "\n";
+    zen::print(zen::color::green(std::format("| {:<24} | {:>12.3f}|\n","Average Aligned time: " , avg_aligned , " ms")));
+    zen::print(zen::color::red(std::format("| {:<20} | {:>12.3f} |\n","Average Unaligned time: " , avg_unaligned , " ms")));
+    zen::print(zen::color::yellow(std::format("| {:<24} | {:>12.3f} |\n","Speedup Factor:" , avg_aligned / avg_unaligned ,"")));
 
     return 0;
 }
