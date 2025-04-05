@@ -5,11 +5,26 @@
 #include <chrono>
 #include <iomanip>
 #include <numeric>
-
+#include "kaizen.h"
+#include <tuple>
 double random_double(double min, double max) {
     static std::mt19937 gen{std::random_device{}()};
     std::uniform_real_distribution<> dis(min, max);
     return dis(gen);
+}
+// Parse command-line arguments
+std::tuple<size_t, int, int, int> process_args(int argc, char* argv[]) {
+    zen::cmd_args args(argv, argc);
+    auto size_options = args.get_options("--size");
+    auto offset_options = args.get_options("--offset");
+    auto iter_options = args.get_options("--iterations");
+    auto trial_options = args.get_options("--trials");
+
+    if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
+        zen::print("Error: --size, --offset, , --iterations or --trials arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
+        return {100000, 4, 1000,5}; // Increased defaults
+    }
+    return {std::stoi(size_options[0]), std::stoi(offset_options[0]), std::stoi(iter_options[0]), std::stoi(trial_options[0])};
 }
 
 template<typename T>
@@ -46,7 +61,9 @@ double sum_misaligned(const double* data, size_t size) {
         sum_vec = _mm256_add_pd(sum_vec, vec);
     }
     double sum = 0;
-    for (; i < size; ++i) sum += data[i];
+    for (; i < size; ++i) {
+        sum += data[i];
+    }
     double result[4];
     _mm256_storeu_pd(result, sum_vec);
     return sum + result[0] + result[1] + result[2] + result[3];
@@ -64,18 +81,16 @@ void flush_data(const double* ptr, size_t size) {
     }
 }
 
-int main() {
-    const size_t size = 2'000'000; // ~15 MB
-    const int offset = 8;          // 8-byte offset
-    const int iterations = 1000;   // High iteration count
-    const int trials = 5;          // Fewer trials for simplicity
+int main(int argc, char* argv[]) {
+    auto [size,offset,iterations,trials] = process_args(argc,argv);
+    size_t extra = (offset + sizeof(double) - 1) / sizeof(double);  // Ceiling division
+    size_t total_size = size + extra;
 
-    size_t total_size = size + (offset / sizeof(double)) + 1;
     std::vector<double, AlignedAllocator<double>> data(total_size);
     initialize_vector(data.data(), total_size);
 
     double* aligned_ptr = data.data();
-    double* unaligned_ptr = reinterpret_cast<double*>(reinterpret_cast<char*>(data.data()) + offset);
+    double* unaligned_ptr = aligned_ptr + extra;
 
     std::vector<double> aligned_times(trials), unaligned_times(trials);
 
@@ -96,7 +111,7 @@ int main() {
             aligned_sum += sum_aligned(aligned_ptr, size);
         }
         auto end = std::chrono::high_resolution_clock::now();
-        aligned_times[trial] = std::chrono::duration<double, std::milli>(end - start).count() / iterations;
+        aligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
         std::cout << "  Aligned sum = " << aligned_sum << "\n";
 
         // Evict cache before misaligned
@@ -107,7 +122,7 @@ int main() {
             unaligned_sum += sum_misaligned(unaligned_ptr, size);
         }
         end = std::chrono::high_resolution_clock::now();
-        unaligned_times[trial] = std::chrono::duration<double, std::milli>(end - start).count() / iterations;
+        unaligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
         std::cout << "  Unaligned sum = " << unaligned_sum << "\n";
     }
 
