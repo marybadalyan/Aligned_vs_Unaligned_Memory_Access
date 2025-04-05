@@ -22,21 +22,30 @@ std::tuple<size_t, int, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, , --iterations or --trials arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
-        return {100000, 4, 1000,5}; // Increased defaults
+        return {1000000, 7, 1000, 5}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]), std::stoi(iter_options[0]), std::stoi(trial_options[0])};
 }
 
+// Aligned allocator (8-byte alignment for AVX)
 template<typename T>
 struct AlignedAllocator {
     using value_type = T;
+
+    AlignedAllocator() = default;
+    template<typename U> AlignedAllocator(const AlignedAllocator<U>&) noexcept {}
+
     T* allocate(std::size_t n) {
-        void* ptr = _mm_malloc(n * sizeof(T), 32);
+        void* ptr = _mm_malloc(n * sizeof(T), 8); // 8-byte aligned for AVX
         if (!ptr) throw std::bad_alloc();
         return static_cast<T*>(ptr);
     }
     void deallocate(T* ptr, std::size_t) noexcept { _mm_free(ptr); }
-    template<typename U> struct rebind { using other = AlignedAllocator<U>; };
+
+    template<typename U>
+    struct rebind {
+        using other = AlignedAllocator<U>;
+    };
 };
 
 double sum_aligned(const double* data, size_t size) {
