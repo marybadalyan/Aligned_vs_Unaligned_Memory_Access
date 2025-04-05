@@ -53,18 +53,23 @@ struct AlignedAllocator {
 
 // Aligned sum with AVX2
 template<typename Allocator>
-double sum_aligned(size_t size, std::vector<double, Allocator>& container, int repeats = 10) {
-    double total_sum = 0;
+double sum_aligned(size_t size, std::vector<double, Allocator>& container, int repeats = 1) {
+    volatile  double total_sum = 0;
     for (int r = 0; r < repeats; ++r) {
         __m256d sum_vec = _mm256_setzero_pd();
         size_t i = 0;
         for (; i + 3 < size; i += 4) {
             __m256d vec = _mm256_load_pd(container.data() + i); // Aligned load
             sum_vec = _mm256_add_pd(sum_vec, vec);
-            _mm_clflush(container.data() + i); // Flush after load to evict from cache
+            _mm_clflush(container.data() + i); // Evict immediately
+            _mm_mfence(); // Ensure flush completes
         }
         double sum = 0;
-        for (; i < size; ++i) sum += container[i];
+        for (; i < size; ++i) {
+            sum += container[i];
+            _mm_clflush(&container[i]); // Evict scalar access
+            _mm_mfence();
+        }
         double result[4];
         _mm256_storeu_pd(result, sum_vec);
         for (int j = 0; j < 4; ++j) sum += result[j];
@@ -75,11 +80,11 @@ double sum_aligned(size_t size, std::vector<double, Allocator>& container, int r
 
 // Misaligned sum with AVX2
 template<typename Allocator>
-double sum_misaligned(size_t size, std::vector<double, Allocator>& container, int byte_offset, int repeats = 10) {
-    double total_sum = 0;
+double sum_misaligned(size_t size, std::vector<double, Allocator>& container, int byte_offset, int repeats = 1) {
+    volatile double total_sum = 0;
     double* base = container.data();
     double* misaligned_ptr = reinterpret_cast<double*>(
-        reinterpret_cast<char*>(base) + byte_offset); // Byte-level offset
+        reinterpret_cast<char*>(base) + byte_offset);
     size_t adjusted_size = size - (byte_offset / sizeof(double));
     for (int r = 0; r < repeats; ++r) {
         __m256d sum_vec = _mm256_setzero_pd();
@@ -87,10 +92,15 @@ double sum_misaligned(size_t size, std::vector<double, Allocator>& container, in
         for (; i + 3 < adjusted_size; i += 4) {
             __m256d vec = _mm256_loadu_pd(misaligned_ptr + i); // Misaligned load
             sum_vec = _mm256_add_pd(sum_vec, vec);
-            _mm_clflush(misaligned_ptr + i); // Flush after load to evict from cache
+            _mm_clflush(misaligned_ptr + i); // Evict immediately
+            _mm_mfence(); // Ensure flush completes
         }
         double sum = 0;
-        for (; i < adjusted_size; ++i) sum += misaligned_ptr[i];
+        for (; i < adjusted_size; ++i) {
+            sum += misaligned_ptr[i];
+            _mm_clflush(&misaligned_ptr[i]); // Evict scalar access
+            _mm_mfence();
+        }
         double result[4];
         _mm256_storeu_pd(result, sum_vec);
         for (int j = 0; j < 4; ++j) sum += result[j];
@@ -98,7 +108,6 @@ double sum_misaligned(size_t size, std::vector<double, Allocator>& container, in
     }
     return total_sum / repeats;
 }
-
 // Initialize vector with non-temporal stores
 template<typename Allocator>
 void initialize_vector(std::vector<double, Allocator>& container) {
