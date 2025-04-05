@@ -6,7 +6,7 @@
 #include <chrono>
 #include <iomanip>
 #include <tuple>
-#include "kaizen.h" // Assuming this provides zen::timer, zen::print, zen::color, zen::cmd_args
+#include "kaizen.h"  
 #include <string>
 #pragma pack(1)
 
@@ -134,36 +134,36 @@ int main(int argc, char* argv[]) {
         std::cerr << "Offset (" << offset << ") must be less than size in bytes (" << size * sizeof(double) << "), adjusting to 4\n";
         offset = 4;
     }
-    zen::timer timer;
-
-    // Misaligned data
-    std::vector<double, AlignedAllocator<double>> missaliged_data(size);
-    initialize_vector(missaliged_data); // Use non-temporal stores
-
-    // Misaligned access
-    double misaligned_time_total = 0;
-    for (int r = 0; r < iter; ++r) {
-        timer.start();
-        volatile double sum = sum_misaligned(size, missaliged_data, offset);
-        timer.stop();
-        misaligned_time_total += timer.elapsed<zen::timer::nsec>().count();
-    }
-    double misaligned_time_avg = misaligned_time_total / iter;
-    zen::print(zen::color::red(std::format("| {:<36} | {:>12.2f} | {:<9} |\n", 
-               "Misaligned access SIMD", misaligned_time_avg, "ns")));
 
     // Aligned data
     std::vector<double, AlignedAllocator<double>> alligned_data(size);
     initialize_vector(alligned_data); // Use non-temporal stores
 
-    // Aligned access
+    // Misaligned data
+    std::vector<double, AlignedAllocator<double>> missaliged_data(size);
+    initialize_vector(missaliged_data); // Use non-temporal stores
+
+    zen::timer timer;
+    // Misaligned access
+    double misaligned_time_total = 0;
     double aligned_time_total = 0;
     for (int r = 0; r < iter; ++r) {
         timer.start();
-        volatile double sum = sum_aligned(size, alligned_data);
-        timer.stop();
+        volatile double sum_missaligned = sum_misaligned(size, missaliged_data, offset);
+        misaligned_time_total += timer.elapsed<zen::timer::nsec>().count();
+
+    // Aligned access
+    
+        timer.start();
+        volatile double sum_alligned = sum_aligned(size, alligned_data);
         aligned_time_total += timer.elapsed<zen::timer::nsec>().count();
     }
+
+    double misaligned_time_avg = misaligned_time_total / iter;
+    zen::print(zen::color::red(std::format("| {:<36} | {:>12.2f} | {:<9} |\n", 
+               "Misaligned access SIMD", misaligned_time_avg, "ns")));
+
+
     double aligned_time_avg = aligned_time_total / iter;
     zen::print(zen::color::green(std::format("| {:<36} | {:>12.2f} | {:<9} |\n", 
                "Aligned data SIMD", aligned_time_avg, "ns")));
