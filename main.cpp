@@ -89,6 +89,19 @@ void flush_data(const double* ptr, size_t size) {
         _mm_clflush(reinterpret_cast<const char*>(ptr) + i);
     }
 }
+// Evict cache by accessing a large buffer
+void evict_cache() {
+    const size_t evict_size = 32 * 1024 * 1024 / sizeof(double); // 32 MB, larger than most L3 caches
+    std::vector<double> evict_buffer(evict_size);
+    for (size_t i = 0; i < evict_size; ++i) {
+        evict_buffer[i] = static_cast<double>(i); // Sequential write
+    }
+    volatile double sink = 0;
+    for (size_t i = 0; i < evict_size; ++i) {
+        sink += evict_buffer[i]; // Sequential read
+    }
+    (void)sink; // Prevent optimization
+}
 
 int main(int argc, char* argv[]) {
     auto [size,offset,iterations,trials] = process_args(argc,argv);
@@ -105,15 +118,8 @@ int main(int argc, char* argv[]) {
 
     for (int trial = 0; trial < trials; ++trial) {
         std::cout << "Trial " << trial << ":\n";
-
-        // Warm-up (optional, can remove if cache eviction is sufficient)
-        for (int i = 0; i < 5; ++i) {
-            sum_aligned(aligned_ptr, size);
-            sum_misaligned(unaligned_ptr, size);
-        }
-
-        // Measure aligned
-        flush_data(aligned_ptr,total_size); // Ensure cache is cold
+        flush_data(aligned_ptr,total_size);
+        evict_cache(); // Cold cache for aligned
         double aligned_sum = 0;
         auto start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < iterations; ++i) {
@@ -121,10 +127,10 @@ int main(int argc, char* argv[]) {
         }
         auto end = std::chrono::high_resolution_clock::now();
         aligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
-        zen::print("  Aligned sum = " , aligned_sum , "\n");
+        std::cout << "  Aligned sum = " << aligned_sum << "\n";
 
-        // Evict cache before misaligned
-        flush_data(unaligned_ptr,total_size); // Ensure cache is cold
+        flush_data(unaligned_ptr,total_size);
+        evict_cache(); // Cold cache for unaligned
         double unaligned_sum = 0;
         start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < iterations; ++i) {
@@ -132,12 +138,18 @@ int main(int argc, char* argv[]) {
         }
         end = std::chrono::high_resolution_clock::now();
         unaligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
-        zen::print("  Unaligned sum = " , unaligned_sum , "\n");
+        std::cout << "  Unaligned sum = " << unaligned_sum << "\n";
     }
 
-    // Compute averages
-    double avg_aligned = std::accumulate(aligned_times.begin(), aligned_times.end(), 0.0) / trials;
-    double avg_unaligned = std::accumulate(unaligned_times.begin(), unaligned_times.end(), 0.0) / trials;
+    // Manual average computation
+    double avg_aligned = 0, avg_unaligned = 0;
+    for (int i = 0; i < trials; ++i) {
+        avg_aligned += aligned_times[i];
+        avg_unaligned += unaligned_times[i];
+    }
+
+    avg_aligned /= trials;
+    avg_unaligned /= trials;
 
     zen::print(zen::color::green(std::format("| {:<24} | {:>12.3f}|\n","Average Aligned time: " , avg_aligned , " ms")));
     zen::print(zen::color::red(std::format("| {:<20} | {:>12.3f} |\n","Average Unaligned time: " , avg_unaligned , " ms")));
