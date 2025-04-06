@@ -22,7 +22,7 @@ std::tuple<size_t, int, int, int> process_args(int argc, char* argv[]) {
 
     if (size_options.empty() || offset_options.empty() || iter_options.empty()) {
         zen::print("Error: --size, --offset, , --iterations or --trials arguments are absent, using defaults: size=1000000, offset=4, iterations=100\n");
-        return {1000000, 15, 1000, 6}; // Increased defaults
+        return {1000000, 15, 10, 6}; // Increased defaults
     }
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]), std::stoi(iter_options[0]), std::stoi(trial_options[0])};
 }
@@ -42,7 +42,7 @@ double sum_aligned(const double* data, size_t size) {
     return sum + result[0] + result[1] + result[2] + result[3];
 }
 
-double sum_misaligned(const double* data, size_t size,int offset) {
+double sum_misaligned(const double* data, size_t size){
     __m256d sum_vec = _mm256_setzero_pd();
     size_t i = 0;
     for (; i + 3 < size; i += 4) {
@@ -60,7 +60,7 @@ double sum_misaligned(const double* data, size_t size,int offset) {
 
 void initialize_vector(double* data, size_t size) {
     for (size_t i = 0; i < size; ++i) {
-        data[i] = random_double(-100.0, 100.0);
+        data[i] = random_double(-1000.0, 1000.0);
     }
 }
 
@@ -88,18 +88,20 @@ int main(int argc, char* argv[]) {
     size_t extra = (offset + sizeof(double) - 1) / sizeof(double);  // To not accses garbage data 
     size_t total_size = size + extra;
 
-    std::vector<double> data(total_size); //no need for a custum allocator  
-    initialize_vector(data.data(), total_size);
-
-    double* aligned_ptr = data.data() + int(offset/sizeof(double));
-    char* shift = reinterpret_cast<char*>(data.data() + offset);
-    double* unaligned_ptr = reinterpret_cast<double*>(shift) + offset;
-
     std::vector<double> aligned_times(trials), unaligned_times(trials);
 
+
     for (int trial = 0; trial < trials; ++trial) {
+
+        std::vector<double> data(total_size); //no need for a custum allocator  
+        initialize_vector(data.data(), total_size);
+    
+    
+        double* aligned_ptr = data.data();
+        double* unaligned_ptr = aligned_ptr + extra;
+    
         std::cout << "Trial " << trial << ":\n";
-        flush_data(aligned_ptr,total_size);
+        flush_data(aligned_ptr, size);
         evict_cache(); // Cold cache for aligned
         double aligned_sum = 0;
         auto start = std::chrono::high_resolution_clock::now();
@@ -110,12 +112,12 @@ int main(int argc, char* argv[]) {
         aligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
         std::cout << "  Aligned sum = " << aligned_sum << "\n";
 
-        flush_data(unaligned_ptr,total_size);
+        flush_data(unaligned_ptr, size);
         evict_cache(); // Cold cache for unaligned
         double unaligned_sum = 0;
         start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < iterations; ++i) {
-            unaligned_sum += sum_misaligned(unaligned_ptr, size,offset);
+            unaligned_sum += sum_misaligned(unaligned_ptr, size);
         }
         end = std::chrono::high_resolution_clock::now();
         unaligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
@@ -128,10 +130,7 @@ int main(int argc, char* argv[]) {
         avg_aligned += aligned_times[i];
         avg_unaligned += unaligned_times[i];
     }
-
-    avg_aligned /= trials;
-    avg_unaligned /= trials;
-
+    
     zen::print(zen::color::green(std::format("| {:<24} | {:>12.3f} |\n","Average Aligned time: " , avg_aligned , " ms")));
     zen::print(zen::color::red(std::format("| {:<20} | {:>12.3f} |\n","Average Unaligned time: " , avg_unaligned , " ms")));
     zen::print(zen::color::yellow(std::format("| {:<24} | {:>12.3f} |\n","Speedup Factor:" , avg_aligned / avg_unaligned ,"")));
