@@ -44,7 +44,7 @@ The goal is to measure and analyze how memory alignment affects the performance 
 Run the program with optional arguments to customize the experiment parameters:
 
 ```
-./Memory_Alignment_Experiment --size [num] --offset [num] --iterations [num] --trials [num]
+./Aligned_vs_Unaligned_Memory_Access --size [num] --offset [num] --iterations [num] --trials [num]
 ```
 
 - `--size`: Number of doubles in the array (default: 1,000,000).
@@ -54,7 +54,7 @@ Run the program with optional arguments to customize the experiment parameters:
 
 ### Example Command
 ```
-./Memory_Alignment_Experiment --size 2000000 --offset 4 --iterations 500 --trials 10
+./Aligned_vs_Unaligned_Memory_Access --size 2000000 --offset 4 --iterations 500 --trials 10
 ```
 
 ## Example Output
