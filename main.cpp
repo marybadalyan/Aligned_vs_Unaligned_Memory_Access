@@ -27,26 +27,6 @@ std::tuple<size_t, int, int, int> process_args(int argc, char* argv[]) {
     return {std::stoi(size_options[0]), std::stoi(offset_options[0]), std::stoi(iter_options[0]), std::stoi(trial_options[0])};
 }
 
-// Aligned allocator (8-byte alignment for AVX)
-template<typename T>
-struct AlignedAllocator {
-    using value_type = T;
-
-    AlignedAllocator() = default;
-    template<typename U> AlignedAllocator(const AlignedAllocator<U>&) noexcept {}
-
-    T* allocate(std::size_t n) {
-        void* ptr = _mm_malloc(n * sizeof(T), 8); // 8-byte aligned for AVX
-        if (!ptr) throw std::bad_alloc();
-        return static_cast<T*>(ptr);
-    }
-    void deallocate(T* ptr, std::size_t) noexcept { _mm_free(ptr); }
-
-    template<typename U>
-    struct rebind {
-        using other = AlignedAllocator<U>;
-    };
-};
 
 double sum_aligned(const double* data, size_t size) {
     __m256d sum_vec = _mm256_setzero_pd();
@@ -105,14 +85,14 @@ void evict_cache() {
 
 int main(int argc, char* argv[]) {
     auto [size,offset,iterations,trials] = process_args(argc,argv);
-    size_t extra = (offset + sizeof(double) - 1) / sizeof(double);  // Ceiling division
+    size_t extra = (offset + sizeof(double) - 1) / sizeof(double);  // To not accses garbage data 
     size_t total_size = size + extra;
 
-    std::vector<double, AlignedAllocator<double>> data(total_size);
+    std::vector<double> data(total_size); //no need for a custum allocator  
     initialize_vector(data.data(), total_size);
 
-    double* aligned_ptr = data.data();
-    double* unaligned_ptr = aligned_ptr + extra;
+    double* aligned_ptr = data.data() + 1;
+    double* unaligned_ptr = reinterpret_cast<double*>(aligned_ptr) + extra;
 
     std::vector<double> aligned_times(trials), unaligned_times(trials);
 
