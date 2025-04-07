@@ -131,9 +131,9 @@ int main(int argc, char* argv[]) {
         avg_unaligned += unaligned_times[i];
     }
     
-    zen::print(zen::color::green(std::format("| {:<24} | {:>12.3f} |\n","Average Aligned time: " , avg_aligned , " ms")));
-    zen::print(zen::color::red(std::format("| {:<20} | {:>12.3f} |\n","Average Unaligned time: " , avg_unaligned , " ms")));
-    zen::print(zen::color::yellow(std::format("| {:<24} | {:>12.3f} |\n","Speedup Factor:" , avg_aligned / avg_unaligned ,"")));
+    zen::print(zen::color::green(std::format("| {:<24} | {:>12.3f} ns|\n","Average Aligned time: " , avg_aligned , " ns")));
+    zen::print(zen::color::red(std::format("| {:<20} | {:>12.3f} ns|\n","Average Unaligned time: " , avg_unaligned , " ns")));
+    zen::print(zen::color::yellow(std::format("| {:<24} | {:>12.3f} ms|\n","Speedup Factor:" , (avg_unaligned - avg_aligned)/1e3,"us")));
 
     return 0;
 }
