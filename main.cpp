@@ -5,8 +5,11 @@
 #include <chrono>
 #include <iomanip>
 #include <numeric>
-#include "kaizen.h"
 #include <tuple>
+#include <stdexcept>
+#include <cstring> 
+
+#include "kaizen.h" 
 
 double random_double(double min, double max) {
     static std::mt19937 gen{std::random_device{}()};
