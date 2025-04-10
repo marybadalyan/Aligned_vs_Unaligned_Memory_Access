@@ -84,23 +84,22 @@ void evict_cache() {
     (void)sink; // Prevent optimization
 }
 
-
 int main(int argc, char* argv[]) {
     auto [size, offset, iterations, trials] = process_args(argc, argv); // offset in bytes
 
-    // Calculate total size to accommodate offset and ensure we don’t overrun
+    // Calculate total size to accommodate offset
     size_t extra_bytes = (offset + sizeof(double) - 1) / sizeof(double); // Ceiling division
     size_t total_size = size + extra_bytes;
 
-    // Allocate with 8-byte alignment
-    double* raw_data = static_cast<double*>(_mm_malloc(8, total_size * sizeof(double)));
+    // Allocate with 8-byte alignment using _mm_malloc
+    double* raw_data = static_cast<double*>(_mm_malloc(total_size * sizeof(double), 8));
     if (!raw_data) {
         std::cerr << "Memory allocation failed\n";
         return 1;
     }
     if (reinterpret_cast<uintptr_t>(raw_data) % 8 != 0) {
         std::cerr << "Aligned allocation failed\n";
-        std::free(raw_data);
+        _mm_free(raw_data);
         return 1;
     }
 
@@ -141,7 +140,7 @@ int main(int argc, char* argv[]) {
         unaligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
         std::cout << "  Unaligned sum = " << unaligned_sum << "\n";
 
-        // Verify sums match (within floating-point error)
+        // Verify sums match
         double baseline = std::accumulate(aligned_ptr, aligned_ptr + size, 0.0);
         if (std::abs(baseline - aligned_sum) > 1e-10 || std::abs(baseline - unaligned_sum) > 1e-10) {
             std::cout << "Sum mismatch: baseline = " << baseline << "\n";
@@ -157,6 +156,6 @@ int main(int argc, char* argv[]) {
     std::cout << "| Average Unaligned time: | " << avg_unaligned << " ns |\n";
     std::cout << "| Speedup Factor:         | " << percentage << " % |\n";
 
-    std::free(raw_data);
+    _mm_free(raw_data);
     return 0;
 }
