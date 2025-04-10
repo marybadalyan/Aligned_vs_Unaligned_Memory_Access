@@ -69,40 +69,58 @@ void flush_data(const double* ptr, size_t size) {
         _mm_clflush(reinterpret_cast<const char*>(ptr) + i);
     }
 }
-// Evict cache by accessing a large buffer
+
+
 void evict_cache() {
     const size_t evict_size = 32 * 1024 * 1024 / sizeof(double); // 32 MB, larger than most L3 caches
     std::vector<double> evict_buffer(evict_size);
     for (size_t i = 0; i < evict_size; ++i) {
-        evict_buffer[i] = static_cast<double>(i); // Sequential write
+        evict_buffer[i] = static_cast<double>(i);  
     }
     volatile double sink = 0;
     for (size_t i = 0; i < evict_size; ++i) {
-        sink += evict_buffer[i]; // Sequential read
+        sink += evict_buffer[i]; 
     }
     (void)sink; // Prevent optimization
 }
 
+
 int main(int argc, char* argv[]) {
-    auto [size,offset,iterations,trials] = process_args(argc,argv);
-    size_t extra = (offset + sizeof(double) - 1) / sizeof(double);  // To not accses garbage data 
-    size_t total_size = size + extra;
+    auto [size, offset, iterations, trials] = process_args(argc, argv); // offset in bytes
+
+    // Calculate total size to accommodate offset and ensure we don’t overrun
+    size_t extra_bytes = (offset + sizeof(double) - 1) / sizeof(double); // Ceiling division
+    size_t total_size = size + extra_bytes;
+
+    // Allocate with 8-byte alignment
+    double* raw_data = static_cast<double*>(_mm_malloc(8, total_size * sizeof(double)));
+    if (!raw_data) {
+        std::cerr << "Memory allocation failed\n";
+        return 1;
+    }
+    if (reinterpret_cast<uintptr_t>(raw_data) % 8 != 0) {
+        std::cerr << "Aligned allocation failed\n";
+        std::free(raw_data);
+        return 1;
+    }
 
     std::vector<double> aligned_times(trials), unaligned_times(trials);
 
-
     for (int trial = 0; trial < trials; ++trial) {
+        initialize_vector(raw_data, total_size);
 
-        std::vector<double> data(total_size); //no need for a custum allocator  
-        initialize_vector(data.data(), total_size);
-    
-    
-        double* aligned_ptr = data.data();
-        double* unaligned_ptr = aligned_ptr + extra;
-    
-        std::cout << "Trial " << trial << ":\n";
+        double* aligned_ptr = raw_data;
+        char* offset_bytes = reinterpret_cast<char*>(aligned_ptr) + offset;
+        double* unaligned_ptr = reinterpret_cast<double*>(offset_bytes);
+
+        // Verify alignment
+        std::cout << "Trial " << trial << ": Aligned ptr = " << aligned_ptr
+                  << ", Unaligned ptr = " << unaligned_ptr << "\n";
+        std::cout << "Aligned mod 8 = " << (reinterpret_cast<uintptr_t>(aligned_ptr) % 8)
+                  << ", Unaligned mod 8 = " << (reinterpret_cast<uintptr_t>(unaligned_ptr) % 8) << "\n";
+
         flush_data(aligned_ptr, size);
-        evict_cache(); // Cold cache for aligned
+        evict_cache();
         double aligned_sum = 0;
         auto start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < iterations; ++i) {
@@ -113,7 +131,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  Aligned sum = " << aligned_sum << "\n";
 
         flush_data(unaligned_ptr, size);
-        evict_cache(); // Cold cache for unaligned
+        evict_cache();
         double unaligned_sum = 0;
         start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < iterations; ++i) {
@@ -122,18 +140,23 @@ int main(int argc, char* argv[]) {
         end = std::chrono::high_resolution_clock::now();
         unaligned_times[trial] = std::chrono::duration<double, std::nano>(end - start).count() / iterations;
         std::cout << "  Unaligned sum = " << unaligned_sum << "\n";
+
+        // Verify sums match (within floating-point error)
+        double baseline = std::accumulate(aligned_ptr, aligned_ptr + size, 0.0);
+        if (std::abs(baseline - aligned_sum) > 1e-10 || std::abs(baseline - unaligned_sum) > 1e-10) {
+            std::cout << "Sum mismatch: baseline = " << baseline << "\n";
+        }
     }
 
-    // Manual average computation
-    double avg_aligned = 0, avg_unaligned = 0;
-    for (int i = 0; i < trials; ++i) {
-        avg_aligned += aligned_times[i];
-        avg_unaligned += unaligned_times[i];
-    }
-    
-    zen::print(zen::color::green(std::format("| {:<24} | {:>12.3f} ns|\n","Average Aligned time: " , avg_aligned , " ns")));
-    zen::print(zen::color::red(std::format("| {:<20} | {:>12.3f} ns|\n","Average Unaligned time: " , avg_unaligned , " ns")));
-    zen::print(zen::color::yellow(std::format("| {:<24} | {:>12.3f} ms|\n","Speedup Factor:" , (avg_unaligned - avg_aligned)/1e3,"us")));
+    double avg_aligned = std::accumulate(aligned_times.begin(), aligned_times.end(), 0.0) / trials;
+    double avg_unaligned = std::accumulate(unaligned_times.begin(), unaligned_times.end(), 0.0) / trials;
+    double percentage = ((avg_unaligned - avg_aligned) / avg_unaligned) * 100;
 
+    std::cout << std::fixed << std::setprecision(3);
+    std::cout << "| Average Aligned time:   | " << avg_aligned << " ns |\n";
+    std::cout << "| Average Unaligned time: | " << avg_unaligned << " ns |\n";
+    std::cout << "| Speedup Factor:         | " << percentage << " % |\n";
+
+    std::free(raw_data);
     return 0;
 }
