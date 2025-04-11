@@ -112,6 +112,29 @@ This experiment uses AVX (256-bit SIMD) to sum an array of doubles, comparing al
 - **SIMD Optimization**: Using aligned loads (`_mm256_load_pd`) requires careful memory management but yields significant performance gains over unaligned loads (`_mm256_loadu_pd`).
 - **Experiment Robustness**: For reliable results, use large `--size` (e.g., 1,000,000+) and `--iterations` (e.g., 1,000+). Small values may be skewed by system noise or cache effects.
 
+# Why Misaligned Might Be Faster
+ 
+ 1. Offset-induced prefetching advantage
+By misaligning, you might actually be avoiding conflict with prefetching or adjacent cache line fetches.
+
+AVX loads span 32 bytes. If your data starts at a boundary that causes prefetch logic to stall (like crossing cache line boundaries), unaligned access might sidestep that problem depending on the memory layout.
+
+ 2. Cache flush doesn't always remove TLB translations or prefetch side-effects
+You're using _mm_clflush, but the CPU still retains TLB (translation lookaside buffer) entries.
+
+That means even with flushed cache lines, address translation and speculative execution paths might still favor one over the other.
+
+ 3. False dependencies or address aliasing in aligned loop
+The aligned_ptr might land in a cache-aligned location that triggers store-to-load forwarding stalls or aliasing with internal buffers.
+
+Misaligned memory accesses may inadvertently avoid these conflicts because they're not at “dangerous” boundaries.
+
+ 4. Instruction scheduling / port contention
+Some CPUs can handle unaligned loads almost as fast as aligned—especially if the unaligned pointer still resides within a single cache line.
+
+Alignment doesn’t help much if the memory system is already saturated and the bottleneck is not the memory load, but retire/dispatch bandwidth or other instructions.
+
+
 ### Why Small Values Differ
 
 Small array sizes or iteration counts can obscure trends due to:
