@@ -27,9 +27,6 @@ jobs:
           - os: ubuntu-latest
             c_compiler: clang
             cpp_compiler: clang++
-          - os: macos-latest
-            c_compiler: clang
-            cpp_compiler: clang++
 
         exclude:
           - os: windows-latest
@@ -90,7 +87,7 @@ jobs:
     - name: Cache Flush and Ensure Memory Consistency
       shell: bash
       run: |
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+        if [ "$RUNNER_OS" == "Linux" ]; then
           # Flush the cache before running benchmarks on Linux/macOS
           echo "Flushing the cache on $RUNNER_OS"
           # You can use `clflush` or similar for cache flushing or memory barrier operations
