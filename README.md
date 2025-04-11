@@ -58,28 +58,20 @@ Run the program with optional arguments to customize the experiment parameters:
 ```
 
 ## Example Output
-
-Below is sample output from running the program with `--size 1000000 --offset 7 --iterations 1000 --trials 5`:
-
 ```
 Trial 0:
-  Aligned sum = 12345.6789
-  Unaligned sum = 12345.6789
+  Unaligned sum = -409342
+  Aligned sum   = -409342
 Trial 1:
-  Aligned sum = 12345.6789
-  Unaligned sum = 12345.6789
+  Unaligned sum = 1.59854e+06
+  Aligned sum   = 1.59854e+06
 Trial 2:
-  Aligned sum = 12345.6789
-  Unaligned sum = 12345.6789
-Trial 3:
-  Aligned sum = 12345.6789
-  Unaligned sum = 12345.6789
-Trial 4:
-  Aligned sum = 12345.6789
-  Unaligned sum = 12345.6789
-| Average Aligned time:    |     1234.567 ns |
-| Average Unaligned time:  |     1456.789 ns |
-| Speedup Factor:          |        0.847    |
+  Unaligned sum = 3.55463e+06
+  Aligned sum   = 3.55463e+06
+| Average Aligned time:    |  5454940.000 ns |
+| Average Unaligned time:  |  6858526.667 ns |
+| Speedup Percentage:      |       20.465   %|
+
 ```
 
 ## Observations and Analysis
@@ -135,7 +127,13 @@ Some CPUs can handle unaligned loads almost as fast as aligned—especially if t
 Alignment doesn’t help much if the memory system is already saturated and the bottleneck is not the memory load, but retire/dispatch bandwidth or other instructions.
 
 
-### Why Small Values Differ
+# What Happens with Small Offsets?
+When you use small misalignment offsets (e.g., offsetting a pointer by just a few bytes), you’re still dealing with misalignment, and the results are technically undefined due to:
+
+Cache line boundary crossing: Even a 1-byte offset might push the data to cross a cache line boundary, which can mess up the way caches are used or invalidate certain assumptions about the memory layout.
+
+Misaligned SIMD operations: SIMD registers expect aligned memory for optimal performance. Misaligned data forces the CPU to handle the access as a regular (non-SIMD) load, which can degrade performance severely.
+
 
 Small array sizes or iteration counts can obscure trends due to:
 - **Noise**: Short runtimes (e.g., <1 µs) are sensitive to system interrupts or timer resolution.
