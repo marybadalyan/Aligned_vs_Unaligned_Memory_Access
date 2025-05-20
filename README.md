@@ -148,11 +148,10 @@ For robust analysis, use parameters like `--size 1000000 --iterations 1000 --tri
 
 # VTune Profiling
 
-![alt text](image.png)
 
+<img src="image.png" alt="Summary Chart" width="600"/>
 
-![alt text](image-1.png)
-
+<img src="image-1.png" alt="Bandwidth Histogram" width="600"/>
 
 🔍 1. Summary of Elapsed Time and Memory Bottlenecks
 From the first image:
@@ -279,11 +278,11 @@ flush_data(unaligned_ptr, size);
 ```
 This intentionally:
 
-Evicts data from cache.
+- Evicts data from cache.
 
-Forces reloading from DRAM every time.
+- Forces reloading from DRAM every time.
 
-Makes this a worst-case memory latency benchmark.
+- Makes this a worst-case memory latency benchmark.
 
 So VTune correctly identifies your code as memory latency bound due to your explicit _mm_clflush and large working set.
 
