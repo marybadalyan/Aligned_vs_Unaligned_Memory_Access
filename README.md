@@ -142,4 +142,148 @@ Small array sizes or iteration counts can obscure trends due to:
 
 For robust analysis, use parameters like `--size 1000000 --iterations 1000 --trials 5`, as shown in the example.
 
----
+
+
+
+
+# VTune Profiling
+
+![alt text](image.png)
+
+
+![alt text](image-1.png)
+
+
+🔍 1. Summary of Elapsed Time and Memory Bottlenecks
+From the first image:
+
+⏱ Elapsed Time
+Total Time: 1.772s
+
+CPU Time: 1.569s (most of the time was active on CPU)
+
+🔧 Performance-core (P-core) Analysis
+Memory Bound: 53.8% of pipeline slots – your application is strongly memory-bound, meaning it is frequently stalled due to memory accesses.
+
+DRAM Bound: 14.7% – a significant portion of stalls are caused by long-latency memory accesses to DRAM.
+
+Store Bound: 35.1% – a high percentage of stalls occur during store operations, indicating a bottleneck in writing data to memory.
+
+L1/L2/L3 Bound: Very low (3%, 1%, 2%) – this suggests that the cache hierarchy isn’t the primary bottleneck, and performance issues stem from accesses to memory beyond the caches.
+
+🧠 Efficient-core (E-core)
+Memory Bound: Just 2.3% – very low contribution from E-cores in this run.
+
+🧵 Other stats
+LLC Miss Count: ~40 million – substantial, supports that many memory accesses bypassed the cache and hit DRAM.
+
+Loads/Stores:
+
+Loads: ~741 million
+
+Stores: ~232 million
+
+This load/store ratio reinforces a read-heavy workload but also shows significant memory writes (aligns with the Store Bound).
+
+📊 2. Bandwidth Utilization Histogram
+From the second image:
+
+The histogram indicates that most of the execution time was spent in the low DRAM bandwidth region (under 15 GB/s).
+
+The average and maximum observed bandwidth is low-to-medium, far from saturating the memory bus.
+
+This suggests that although the code is memory bound, it is not bandwidth-bound – instead, latency (especially for stores and DRAM accesses) is more likely the limiting factor.
+
+📌 Conclusion: What's VTune Saying?
+Your application is limited by memory latency, not memory bandwidth.
+
+✅ You’re not saturating DRAM bandwidth, as indicated by the histogram.
+
+⚠️ But you're stalling frequently on memory, especially due to:
+
+Store operations (35.1% Store Bound)
+
+DRAM latency (14.7% DRAM Bound)
+
+The cache system is not the bottleneck, as very little time is spent being L1/L2/L3 bound.
+
+
+
+
+✅ What Our Code is Actually Measuring
+You’ve designed a microbenchmark for:
+
+Aspect	Purpose
+sum_aligned()	Tests SIMD performance with aligned loads.
+sum_misaligned()	Tests SIMD performance with unaligned loads.
+flush_data()	Ensures cache is cold → forces DRAM access.
+offset argument	Controls how misaligned the unaligned access is.
+Timings over iterations	Amortizes transient timing noise.
+
+This setup is very sensitive to memory system behavior, which is exactly what VTune has confirmed.
+
+Design Goals and Bottlenecks Demonstrated
+The benchmark effectively highlights the impact of:
+
+❌ Cache-line misalignment
+
+❌ Lack of blocking/tiling
+
+❌ No cache reuse (flushing data)
+
+❌ No non-temporal stores
+
+✅ Streaming read/write pattern over large arrays
+
+
+ Mapping VTune Results to Code
+1. High Store Bound (35.1%)
+This suggests write operations are stalling your pipeline, and the root cause is likely:
+
+🔸 Where it happens:
+```
+std::memcpy(unaligned_ptr, aligned_ptr, size * sizeof(double));
+....
+std::vector<double> data(size);
+initialize_vector(data.data(), size);
+```
+Both operations involve massive memory writes to large contiguous arrays. initialize_vector() writes size doubles using random_double(), and memcpy does the same for the unaligned buffer.
+
+🔸 Why it's costly:
+These writes are not vectorized.
+
+They are cached, but later immediately flushed with _mm_clflush, resulting in:
+
+Cache line evictions.
+
+Writebacks to memory, increasing DRAM usage.
+
+The unaligned_ptr is malloc'd with manual offset, which often results in misalignment penalties for stores as well (e.g., crossing cache-line or page boundaries).
+
+2. Moderate DRAM Bound (14.7%)
+This means that a portion of execution time is stalling waiting on DRAM — high-latency memory access.
+
+🔸 Where it happens:
+```
+for (int i = 0; i < iterations; ++i) {
+    aligned_sum += sum_aligned(aligned_ptr, size);
+}
+...
+unaligned_sum += sum_misaligned(unaligned_ptr, size);
+```
+We are implementing multiple full-array traversals of size elements with SIMD reads, and flushing both arrays before each traversal:
+
+```
+flush_data(aligned_ptr, size);
+flush_data(unaligned_ptr, size);
+```
+This intentionally:
+
+Evicts data from cache.
+
+Forces reloading from DRAM every time.
+
+Makes this a worst-case memory latency benchmark.
+
+So VTune correctly identifies your code as memory latency bound due to your explicit _mm_clflush and large working set.
+
